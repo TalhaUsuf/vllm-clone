@@ -44,6 +44,8 @@ from vllm.model_executor.parallel_utils.tensor_parallel import (
     VocabParallelEmbedding, ColumnParallelLinear, RowParallelLinear)
 from vllm.sequence import SequenceOutputs
 from rich.console import Console
+from transformers.modeling_utils import PreTrainedModel
+
 KVCache = Tuple[torch.Tensor, torch.Tensor]
 
 
@@ -186,6 +188,39 @@ class LlamaDecoderLayer(nn.Module):
         return hidden_states
 
 
+# ==========================================================================
+#                             ported from transformers                                  
+# ==========================================================================
+# this should be base class for other models
+class LlamaPreTrainedModel(PreTrainedModel): # already inherits from nn.Module, ModuleUtilsMixin, GenerationMixin, PushToHubMixin
+    
+    # 🟩 SEE : https://github.com/huggingface/transformers/blob/b0f23036f16b961e14cf480522fef8581c4bf19c/src/transformers/modeling_utils.py#L1028
+    
+    
+    # these attributes must be overridden by any model that inherits from PretrainedModel base class
+    config_class = LlamaConfig
+    base_model_prefix = "model"
+    supports_gradient_checkpointing = True
+    _no_split_modules = ["LlamaDecoderLayer"]
+    _skip_keys_device_placement = "past_key_values"
+
+    def _init_weights(self, module):
+        std = self.config.initializer_range
+        if isinstance(module, nn.Linear):
+            module.weight.data.normal_(mean=0.0, std=std)
+            if module.bias is not None:
+                module.bias.data.zero_()
+        elif isinstance(module, nn.Embedding):
+            module.weight.data.normal_(mean=0.0, std=std)
+            if module.padding_idx is not None:
+                module.weight.data[module.padding_idx].zero_()
+
+    def _set_gradient_checkpointing(self, module, value=False):
+        if isinstance(module, LlamaModel):
+            module.gradient_checkpointing = value
+            
+
+# class LlamaModel(LlamaPreTrainedModel):
 class LlamaModel(nn.Module):
 
     def __init__(self, config: LlamaConfig):
@@ -253,6 +288,7 @@ class LlamaModel(nn.Module):
 
 
 
+# class LlamaForCausalLM(LlamaPreTrainedModel):
 class LlamaForCausalLM(nn.Module):
 
     def __init__(self, config):
@@ -326,6 +362,56 @@ class LlamaForCausalLM(nn.Module):
         # +    cache_events: Optional[List[torch.cuda.Event]],
         # +) -> Dict[int, SequenceOutputs]:
     
+    # 🔴 GenerationMixin requries this function to be implemented
+    def prepare_inputs_for_generation(
+        self, input_ids, 
+        past_key_values=None, 
+        attention_mask=None, 
+        inputs_embeds=None, 
+        **kwargs
+    ):
+        # position_ids, use_cache are in kwargs
+        
+        
+        # Given the provided function prepare_inputs_for_generation, the keys present in the model_inputs dictionary will be:
+
+        #     "input_ids" OR "inputs_embeds"
+        #     "input_ids" will be present if inputs_embeds is None or past_key_values is not None.
+        #     "inputs_embeds" will be present only if inputs_embeds is provided and past_key_values is None.
+        #     "position_ids"
+        #     "past_key_values"
+        #     "use_cache"
+        #     "attention_mask"
+        #     So, in total, there will be 5 keys in the model_inputs dictionary.
+        
+        if past_key_values:
+            input_ids = input_ids[:, -1:]
+
+        position_ids = kwargs.get("position_ids", None)
+        if attention_mask is not None and position_ids is None:
+            # create position_ids on the fly for batch generation
+            position_ids = attention_mask.long().cumsum(-1) - 1
+            position_ids.masked_fill_(attention_mask == 0, 1)
+            if past_key_values:
+                position_ids = position_ids[:, -1].unsqueeze(-1)
+
+        # if `inputs_embeds` are passed, we only want to use them in the 1st generation step
+        if inputs_embeds is not None and past_key_values is None:
+            model_inputs = {"inputs_embeds": inputs_embeds}
+        else:
+            model_inputs = {"input_ids": input_ids}
+
+        model_inputs.update(
+            {
+                # "position_ids": position_ids,
+                "positions": position_ids,
+                "past_key_values": past_key_values,
+                "use_cache": kwargs.get("use_cache"),
+                "attention_mask": attention_mask,
+            }
+        )
+        # all of these keys will be passed to the forward function of the model
+        return model_inputs
     
     def forward(
         self,

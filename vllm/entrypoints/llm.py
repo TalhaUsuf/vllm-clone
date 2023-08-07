@@ -54,15 +54,22 @@ class LLM:
         if "disable_log_stats" not in kwargs:
             kwargs["disable_log_stats"] = True
         engine_args = EngineArgs(
-            model=model,
+            model=model,   # 'meta-llama/Llama-2-7b-hf'
             tokenizer=tokenizer,
-            tokenizer_mode=tokenizer_mode,
+            tokenizer_mode=tokenizer_mode,  # auto
             trust_remote_code=trust_remote_code,
             tensor_parallel_size=tensor_parallel_size,
             dtype=dtype,
             seed=seed,
             **kwargs,
         )
+        
+        # EngineArgs(model='meta-llama/Llama-2-7b-hf', tokenizer='meta-llama/Llama-2-7b-hf', 
+        # tokenizer_mode='auto', trust_remote_code=False, download_dir=None, 
+        # use_np_weights=False, use_dummy_weights=False, dtype='auto', seed=0, 
+        # worker_use_ray=False, pipeline_parallel_size=1, tensor_parallel_size=1, 
+        # block_size=16, swap_space=4, gpu_memory_utilization=0.9, max_num_batched_tokens=2560, 
+        # max_num_seqs=256, disable_log_stats=True)
         self.llm_engine = LLMEngine.from_engine_args(engine_args)
         self.request_counter = Counter()
 
@@ -75,6 +82,10 @@ class LLM:
         tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast],
     ) -> None:
         self.llm_engine.tokenizer = tokenizer
+        
+    def _get_input_embeddings(self):
+        return self.get_input_embeddings()
+    
     # 🔴 
     def generate(
         self,
@@ -143,10 +154,15 @@ class LLM:
         self.llm_engine.add_request(request_id, prompt, sampling_params,
                                     prompt_token_ids)
 
+    def get_input_embeddings(self):
+        # no need to check for requests, just the model needs to be loaded
+        embed_layer = self.llm_engine.get_input_embeddings()
+        return embed_layer
+    
     def _run_engine(self, use_tqdm: bool) -> List[RequestOutput]:
         # Initialize tqdm.
         if use_tqdm:
-            num_requests = self.llm_engine.get_num_unfinished_requests()
+            num_requests = self.llm_engine.get_num_unfinished_requests()  # 1
             pbar = tqdm(total=num_requests, desc="Processed prompts")
         # Run the engine.
         outputs: List[RequestOutput] = []

@@ -252,7 +252,7 @@ class Worker:
             block_tables=block_tables_tensor,
         )
         return tokens_tensor, positions_tensor, input_metadata
-
+    # 
     @torch.inference_mode()
     def execute_model(
         self,
@@ -288,10 +288,13 @@ class Worker:
         # Prepare input tensors.
         input_tokens, input_positions, input_metadata = self._prepare_inputs(
             seq_group_metadata_list)
+        # input_tokens tensor([    1,   319, 15373,   310,     0,     0,     0,     0],
+        #    device='cuda:0')
+        # input_positions  tensor([0, 1, 2, 3, 0, 0, 0, 0], device='cuda:0')
+        # InputMetadata(num_valid_tokens=4, num_prompt_tokens=4, num_prompts=1, prompt_lens=[4], num_generation_tokens=0, context_lens=tensor([], device='cuda:0', dtype=torch.int32), max_context_len=0), max_num_blocks_per_seq=0, block_tables=tensor([], device='cuda:0', dtype=torch.int32)), slot_mapping=tensor([45936, 45937, 45938, 45939], device='cuda:0', dtype=torch.int32)
         
-        
-        # expose this method outside vllm
-        self.model.get_input_embeddings()
+        # # expose this method outside vllm
+        # embedding_layer = self.model.get_input_embeddings()
         # 🔴 Execute the model.
         output = self.model(
             input_ids=input_tokens,
@@ -301,7 +304,9 @@ class Worker:
             cache_events=cache_events,
         )
         return output
-
+    def get_input_embeddings(self):
+        # expose model function outside vllm
+        return self.model.get_input_embeddings()
 
 def _init_distributed_environment(
     parallel_config: ParallelConfig,

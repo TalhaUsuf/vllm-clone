@@ -288,7 +288,18 @@ class LLMEngine:
     def has_unfinished_requests(self) -> bool:
         """Returns True if there are unfinished requests."""
         return self.scheduler.has_unfinished_seqs()
-
+    def get_input_embeddings(self,):
+        embedding_layer = self._run_workers(
+            "get_input_embeddings"
+        )
+        
+        return embedding_layer
+    
+    
+    
+    
+    
+    
     def step(self) -> List[RequestOutput]:
         """Performs one decoding iteration and returns newly generated results.
 
@@ -310,7 +321,7 @@ class LLMEngine:
                 for seq_group in scheduler_outputs.ignored_seq_groups
             ]
 
-        # Execute the model.
+        # 🔴 Execute the model.
         output = self._run_workers(
             "execute_model",
             seq_group_metadata_list=seq_group_metadata_list,
@@ -467,7 +478,7 @@ class LLMEngine:
                 executor = partial(worker.execute_method.remote, method)
             else:
                 executor = getattr(worker, method)
-
+            # 🔴 execute the model
             output = executor(*args, **kwargs)
             all_outputs.append(output)
         Console().print(f"[green]All outputs are : [red]{all_outputs}")
